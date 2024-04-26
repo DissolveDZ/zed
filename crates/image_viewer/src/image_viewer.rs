@@ -39,7 +39,7 @@ impl project::Item for ImageItem {
 
         // Only open the item if it's a binary image (no SVGs, etc.)
         // Since we do not have a way to toggle to an editor
-        if Img::extensions().contains(&ext) && !ext.contains("svg") {
+        if Img::extensions().contains(&ext) {
             Some(cx.spawn(|mut cx| async move {
                 let abs_path = project
                     .read_with(&cx, |project, cx| project.absolute_path(&path, cx))?
@@ -203,19 +203,11 @@ impl Render for ImageView {
             .size_full()
             .child(checkered_background)
             .child(
-                div()
-                    .flex()
-                    .justify_center()
-                    .items_center()
-                    .w_full()
-                    // TODO: In browser based Tailwind & Flex this would be h-screen and we'd use w-full
-                    .h_full()
-                    .child(
-                        img(self.path.clone())
-                            .object_fit(ObjectFit::ScaleDown)
-                            .max_w_full()
-                            .max_h_full(),
-                    ),
+                div().size_full().child(
+                    img(self.path.clone())
+                        .object_fit(ObjectFit::Contain)
+                        .size_full(),
+                ),
             )
     }
 }
