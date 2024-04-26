@@ -2,11 +2,6 @@ use std::hash::Hasher;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{fs, hash::Hash};
-// <<<<<<< HEAD
-//     point, px, size, AbsoluteLength, Asset, Bounds, DefiniteLength, DevicePixels, Element, Hitbox,
-//     ImageData, InteractiveElement, Interactivity, IntoElement, LayoutId, Length, Pixels, SharedUri,
-//     Size, StyleRefinement, Styled, SvgSize, UriOrPath, WindowContext,
-// ======
 
 use crate::{
     point, px, size, AbsoluteLength, Asset, Bounds, DefiniteLength, DevicePixels, Element,
