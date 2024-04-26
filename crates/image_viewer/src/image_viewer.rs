@@ -39,7 +39,6 @@ impl project::Item for ImageItem {
 
         // Only open the item if it's a binary image (no SVGs, etc.)
         // Since we do not have a way to toggle to an editor
-        // todo: Add option to toggle preview for svg
         if Img::extensions().contains(&ext) && !ext.contains("svg") {
             Some(cx.spawn(|mut cx| async move {
                 let abs_path = project
