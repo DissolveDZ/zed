@@ -207,6 +207,7 @@ impl Render for ImageView {
                     .flex()
                     .justify_center()
                     .items_center()
+                    .w_full()
                     // TODO: In browser based Tailwind & Flex this would be h-screen and we'd use w-full
                     .h_full()
                     .child(
