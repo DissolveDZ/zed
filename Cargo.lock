@@ -3815,6 +3815,7 @@ dependencies = [
  "ctor",
  "editor",
  "env_logger",
+ "futures 0.3.28",
  "fuzzy",
  "gpui",
  "itertools 0.11.0",
@@ -5901,6 +5902,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-recursion 1.0.5",
+ "collections",
  "editor",
  "gpui",
  "language",
