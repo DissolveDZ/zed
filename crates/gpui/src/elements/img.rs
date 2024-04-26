@@ -1,17 +1,49 @@
-use std::fs;
+use std::hash::Hasher;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{fs, hash::Hash};
 
 use crate::{
-    point, px, size, AbsoluteLength, Asset, Bounds, DefiniteLength, DevicePixels, Element, Hitbox,
-    ImageData, InteractiveElement, Interactivity, IntoElement, LayoutId, Length, Pixels, SharedUri,
-    Size, StyleRefinement, Styled, SvgSize, UriOrPath, WindowContext,
+    // <<<<<<< HEAD
+    //     point, px, size, AbsoluteLength, Asset, Bounds, DefiniteLength, DevicePixels, Element, Hitbox,
+    //     ImageData, InteractiveElement, Interactivity, IntoElement, LayoutId, Length, Pixels, SharedUri,
+    //     Size, StyleRefinement, Styled, SvgSize, UriOrPath, WindowContext,
+    // =======
+    point,
+    px,
+    size,
+    AbsoluteLength,
+    Asset,
+    Bounds,
+    DefiniteLength,
+    DevicePixels,
+    Element,
+    ElementContext,
+    GlobalElementId,
+    Hitbox,
+    ImageData,
+    InteractiveElement,
+    Interactivity,
+    IntoElement,
+    LayoutId,
+    Length,
+    Pixels,
+    SharedString,
+    SharedUri,
+    Size,
+    StyleRefinement,
+    Styled,
+    UriOrPath,
+    WindowContext,
 };
+use collections::HashMap;
 use futures::{AsyncReadExt, Future};
 use image::{ImageBuffer, ImageError};
+use itertools::Itertools;
 #[cfg(target_os = "macos")]
 use media::core_video::CVImageBuffer;
 
+use parking_lot::Mutex;
 use thiserror::Error;
 use util::{http, ResultExt};
 
@@ -235,7 +267,13 @@ impl Element for Img {
     fn request_layout(&mut self, cx: &mut WindowContext) -> (LayoutId, Self::RequestLayoutState) {
         let layout_id = self.interactivity.request_layout(cx, |mut style, cx| {
             if let Some(data) = self.source.data(cx) {
-                let image_size = data.size();
+                let image_size = match data {
+                    RasterOrVector::Raster(data) => data.size(),
+                    RasterOrVector::Vector { data, .. } => size(
+                        (data.size().width() as u32).into(),
+                        (data.size().height() as u32).into(),
+                    ),
+                };
                 match (style.size.width, style.size.height) {
                     (Length::Auto, Length::Auto) => {
                         style.size = Size {
@@ -278,7 +316,7 @@ impl Element for Img {
             .paint(bounds, hitbox.as_ref(), cx, |style, cx| {
                 let corner_radii = style.corner_radii.to_pixels(bounds.size, cx.rem_size());
 
-                if let Some(data) = source.data(cx) {
+                if let Some(RasterOrVector::Raster(data)) = source.data(Some(bounds), cx) {
                     let new_bounds = self.object_fit.get_bounds(bounds, data.size());
                     cx.paint_image(new_bounds, corner_radii, data.clone(), self.grayscale)
                         .log_err();
@@ -319,7 +357,11 @@ impl InteractiveElement for Img {
 }
 
 impl ImageSource {
-    fn data(&self, cx: &mut WindowContext) -> Option<Arc<ImageData>> {
+    fn data(
+        &self,
+        bounds: Option<Bounds<Pixels>>,
+        cx: &mut ElementContext,
+    ) -> Option<RasterOrVector> {
         match self {
             ImageSource::Uri(_) | ImageSource::File(_) => {
                 let uri_or_path: UriOrPath = match self {
@@ -328,10 +370,76 @@ impl ImageSource {
                     _ => unreachable!(),
                 };
 
-                cx.use_cached_asset::<Image>(&uri_or_path)?.log_err()
+                let uri: SharedString = uri_or_path.as_ref().to_string().into();
+                match cx.use_cached_asset::<RasterOrVector>(&uri_or_path)? {
+                    Ok(RasterOrVector::Raster(data)) => Some(RasterOrVector::Raster(data)),
+                    Ok(RasterOrVector::Vector {
+                        data,
+                        sizes,
+                        fallback,
+                    }) => {
+                        if let Some(bounds) = bounds {
+                            let scaled = bounds.scale(cx.scale_factor());
+                            let size = size(scaled.size.width.into(), scaled.size.height.into());
+
+                            let mut lock = sizes.lock();
+
+                            let mut id = cx.global_element_id();
+
+                            id.push(uri.into());
+                            let mut fallback_lock = fallback.lock();
+                            if let Some(cur) = lock.get_mut(&id) {
+                                if !size.eq(cur) {
+                                    let old = *cur;
+                                    *cur = size;
+
+                                    // Remove old cached asset if it's not used anymore
+                                    if !lock.values().contains(&old) {
+                                        if let Some(Some(f)) =
+                                            cx.remove_cached_asset::<Vector>(&VectorKey {
+                                                source: uri_or_path.clone(),
+                                                size: old,
+                                                tree: data.clone(),
+                                            })
+                                        {
+                                            *fallback_lock = Some(f);
+                                        };
+                                    }
+                                }
+                            } else {
+                                lock.insert(id, size);
+                            };
+
+                            let key = VectorKey {
+                                source: uri_or_path.clone(),
+                                size,
+                                tree: data.clone(),
+                            };
+
+                            Some(
+                                cx.use_cached_asset::<Vector>(&key)
+                                    .flatten()
+                                    .or(fallback_lock.clone())
+                                    .map(|data| RasterOrVector::Raster(data))
+                                    .unwrap_or(RasterOrVector::Vector {
+                                        data,
+                                        sizes: sizes.clone(),
+                                        fallback: fallback.clone(),
+                                    }),
+                            )
+                        } else {
+                            Some(RasterOrVector::Vector {
+                                data,
+                                sizes,
+                                fallback,
+                            })
+                        }
+                    }
+                    Err(_) => None,
+                }
             }
 
-            ImageSource::Data(data) => Some(data.to_owned()),
+            ImageSource::Data(data) => Some(RasterOrVector::Raster(data.to_owned())),
             #[cfg(target_os = "macos")]
             ImageSource::Surface(_) => None,
         }
@@ -339,18 +447,60 @@ impl ImageSource {
 }
 
 #[derive(Clone)]
-enum Image {}
+struct VectorKey {
+    source: UriOrPath,
+    size: Size<DevicePixels>,
+    tree: Arc<resvg::usvg::Tree>,
+}
 
-impl Asset for Image {
+impl Hash for VectorKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.source.hash(state);
+        self.size.hash(state);
+    }
+}
+
+struct Vector {}
+impl Asset for Vector {
+    type Source = VectorKey;
+    type Output = Option<Arc<ImageData>>;
+
+    fn load(
+        source: Self::Source,
+        cx: &mut WindowContext,
+    ) -> impl Future<Output = Self::Output> + Send + 'static {
+        let svg_renderer = cx.svg_renderer();
+        async move {
+            let Ok(pixmap) = svg_renderer.render_pixmap(&source.tree, source.size) else {
+                return None;
+            };
+
+            let buffer =
+                ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).unwrap();
+            Some(Arc::new(ImageData::new(buffer)))
+        }
+    }
+}
+
+#[derive(Clone)]
+enum RasterOrVector {
+    Raster(Arc<ImageData>),
+    Vector {
+        sizes: Arc<Mutex<HashMap<GlobalElementId, Size<DevicePixels>>>>,
+        data: Arc<resvg::usvg::Tree>,
+        fallback: Arc<Mutex<Option<Arc<ImageData>>>>,
+    },
+}
+
+impl Asset for RasterOrVector {
     type Source = UriOrPath;
-    type Output = Result<Arc<ImageData>, ImageCacheError>;
+    type Output = Result<Self, ImageCacheError>;
 
     fn load(
         source: Self::Source,
         cx: &mut WindowContext,
     ) -> impl Future<Output = Self::Output> + Send + 'static {
         let client = cx.http_client();
-        let scale_factor = cx.scale_factor();
         let svg_renderer = cx.svg_renderer();
         async move {
             let bytes = match source.clone() {
@@ -369,20 +519,17 @@ impl Asset for Image {
                 }
             };
 
-            let data = if let Ok(format) = image::guess_format(&bytes) {
-                let data = image::load_from_memory_with_format(&bytes, format)?.into_bgra8();
-                ImageData::new(data)
+            if let Ok(format) = image::guess_format(&bytes) {
+                let data = image::load_from_memory_with_format(&bytes, format)?.into_rgba8();
+                return Ok(Self::Raster(Arc::new(ImageData::new(data))));
             } else {
-                let pixmap =
-                    svg_renderer.render_pixmap(&bytes, SvgSize::ScaleFactor(scale_factor))?;
-
-                let buffer =
-                    ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).unwrap();
-
-                ImageData::new(buffer)
+                let tree = svg_renderer.tree(&bytes)?;
+                return Ok(Self::Vector {
+                    sizes: Default::default(),
+                    data: Arc::new(tree),
+                    fallback: Default::default(),
+                });
             };
-
-            Ok(Arc::new(data))
         }
     }
 }
