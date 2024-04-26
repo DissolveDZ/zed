@@ -1,10 +1,7 @@
 use crate::{AssetSource, DevicePixels, IsZero, Result, SharedString, Size};
 use anyhow::anyhow;
 use resvg::tiny_skia::Pixmap;
-use std::{
-    hash::Hash,
-    sync::{Arc, OnceLock},
-};
+use std::{hash::Hash, sync::Arc};
 
 #[derive(Clone, PartialEq, Hash, Eq)]
 pub(crate) struct RenderSvgParams {
@@ -68,14 +65,4 @@ impl SvgRenderer {
 
         Ok(pixmap)
     }
-}
-
-/// Returns the global font database used for SVG rendering.
-pub(crate) fn svg_fontdb() -> &'static cosmic_text::fontdb::Database {
-    static FONTDB: OnceLock<cosmic_text::fontdb::Database> = OnceLock::new();
-    FONTDB.get_or_init(|| {
-        let mut fontdb = cosmic_text::fontdb::Database::new();
-        fontdb.load_system_fonts();
-        fontdb
-    })
 }

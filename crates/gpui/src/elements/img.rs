@@ -2,40 +2,19 @@ use std::hash::Hasher;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{fs, hash::Hash};
+// <<<<<<< HEAD
+//     point, px, size, AbsoluteLength, Asset, Bounds, DefiniteLength, DevicePixels, Element, Hitbox,
+//     ImageData, InteractiveElement, Interactivity, IntoElement, LayoutId, Length, Pixels, SharedUri,
+//     Size, StyleRefinement, Styled, SvgSize, UriOrPath, WindowContext,
+// ======
 
 use crate::{
-    // <<<<<<< HEAD
-    //     point, px, size, AbsoluteLength, Asset, Bounds, DefiniteLength, DevicePixels, Element, Hitbox,
-    //     ImageData, InteractiveElement, Interactivity, IntoElement, LayoutId, Length, Pixels, SharedUri,
-    //     Size, StyleRefinement, Styled, SvgSize, UriOrPath, WindowContext,
-    // =======
-    point,
-    px,
-    size,
-    AbsoluteLength,
-    Asset,
-    Bounds,
-    DefiniteLength,
-    DevicePixels,
-    Element,
-    ElementContext,
-    GlobalElementId,
-    Hitbox,
-    ImageData,
-    InteractiveElement,
-    Interactivity,
-    IntoElement,
-    LayoutId,
-    Length,
-    Pixels,
-    SharedString,
-    SharedUri,
-    Size,
-    StyleRefinement,
-    Styled,
-    UriOrPath,
+    point, px, size, AbsoluteLength, Asset, Bounds, DefiniteLength, DevicePixels, Element,
+    GlobalElementId, Hitbox, ImageData, InteractiveElement, Interactivity, IntoElement, LayoutId,
+    Length, Pixels, SharedString, SharedUri, Size, StyleRefinement, Styled, UriOrPath,
     WindowContext,
 };
+
 use collections::HashMap;
 use futures::{AsyncReadExt, Future};
 use image::{ImageBuffer, ImageError};
@@ -266,7 +245,7 @@ impl Element for Img {
 
     fn request_layout(&mut self, cx: &mut WindowContext) -> (LayoutId, Self::RequestLayoutState) {
         let layout_id = self.interactivity.request_layout(cx, |mut style, cx| {
-            if let Some(data) = self.source.data(cx) {
+            if let Some(data) = self.source.data(None, cx) {
                 let image_size = match data {
                     RasterOrVector::Raster(data) => data.size(),
                     RasterOrVector::Vector { data, .. } => size(
@@ -360,7 +339,7 @@ impl ImageSource {
     fn data(
         &self,
         bounds: Option<Bounds<Pixels>>,
-        cx: &mut ElementContext,
+        cx: &mut WindowContext,
     ) -> Option<RasterOrVector> {
         match self {
             ImageSource::Uri(_) | ImageSource::File(_) => {
@@ -520,7 +499,7 @@ impl Asset for RasterOrVector {
             };
 
             if let Ok(format) = image::guess_format(&bytes) {
-                let data = image::load_from_memory_with_format(&bytes, format)?.into_rgba8();
+                let data = image::load_from_memory_with_format(&bytes, format)?.into_bgra8();
                 return Ok(Self::Raster(Arc::new(ImageData::new(data))));
             } else {
                 let tree = svg_renderer.tree(&bytes)?;
